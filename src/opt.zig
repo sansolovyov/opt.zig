@@ -113,33 +113,15 @@ fn commandPayloadType(comptime command_spec: anytype) type {
 }
 
 fn commandUnion(comptime commands: anytype) type {
-    const fields_info = @typeInfo(@TypeOf(commands)).@"struct".fields;
-    comptime var enum_fields: [fields_info.len]std.builtin.Type.EnumField = undefined;
-    comptime var union_fields: [fields_info.len]std.builtin.Type.UnionField = undefined;
+    const Commands = @TypeOf(commands);
+    const fields_info = @typeInfo(Commands).@"struct".fields;
+    comptime var field_types: [fields_info.len]type = undefined;
 
     inline for (fields_info, 0..) |field, idx| {
-        const command_spec = @field(commands, field.name);
-        enum_fields[idx] = .{ .name = field.name, .value = idx };
-        union_fields[idx] = .{
-            .name = field.name,
-            .type = commandPayloadType(command_spec),
-            .alignment = @alignOf(commandPayloadType(command_spec)),
-        };
+        field_types[idx] = commandPayloadType(@field(commands, field.name));
     }
 
-    const Tag = @Type(.{ .@"enum" = .{
-        .tag_type = std.math.IntFittingRange(0, fields_info.len - 1),
-        .fields = &enum_fields,
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
-
-    return @Type(.{ .@"union" = .{
-        .layout = .auto,
-        .tag_type = Tag,
-        .fields = &union_fields,
-        .decls = &.{},
-    } });
+    return @Union(.auto, std.meta.FieldEnum(Commands), std.meta.fieldNames(Commands), &field_types, &@splat(.{}));
 }
 
 fn commandFound(comptime commands: anytype) type {
@@ -604,14 +586,51 @@ test "printUsage output" {
     };
 
     var buf: [2048]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    printUsage(Opts, fbs.writer());
-    const output = fbs.getWritten();
+    var writer = std.Io.Writer.fixed(&buf);
+    printUsage(Opts, &writer);
+    const output = writer.buffered();
 
     try std.testing.expect(std.mem.indexOf(u8, output, "zg - Fast search and replace") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "-r, --replace") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "(default: 2)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "--dry-run") != null);
+}
+
+test "CommandParser usage output" {
+    const Global = struct {
+        verbose: bool = false,
+        pub const meta = .{ .verbose = .{ .short = 'v', .help = "Verbose output" } };
+    };
+    const Build = struct { jobs: u8 = 1 };
+    const Service = struct { name: []const u8 = "default" };
+    const Cli = CommandParser(.{
+        .name = "myapp",
+        .global = Global,
+        .commands = .{
+            .build = Build,
+            .service = .{
+                .options = Service,
+                .commands = .{ .status = struct {} },
+            },
+        },
+    });
+
+    var buf: [2048]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    Cli.printUsage(&writer);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "Usage: myapp <command> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "  build\n  service\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "-v, --verbose") != null);
+
+    writer = std.Io.Writer.fixed(&buf);
+    Cli.printCommandUsage(.build, &writer);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "--jobs <u8>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "(default: 1)") != null);
+
+    writer = std.Io.Writer.fixed(&buf);
+    Cli.printCommandUsage(.service, &writer);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "--name <str>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "(default: default)") != null);
 }
 
 test "optional field" {

@@ -2,9 +2,12 @@
 
 Declarative CLI option parsing for Zig. Define options as a struct, get parsing and help generation for free.
 
+Requires Zig 0.16.0 or newer. For local development, run `mise install` and `mise exec -- make test`.
+
 ## Usage
 
 ```zig
+const std = @import("std");
 const opt = @import("opt");
 
 const Options = struct {
@@ -20,19 +23,26 @@ const Options = struct {
     pub const about = .{ .name = "myapp", .desc = "Does useful things" };
 };
 
-pub fn main() !void {
-    const args = std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer: std.Io.File.Writer = .init(.stdout(), init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     var opts = Options{};
     var positionals_buf: [256][]const u8 = undefined;
     const positionals = opt.parse(Options, &opts, args[1..], &positionals_buf) catch |e| {
-        if (e == error.Help) opt.printUsage(Options, stdout);
+        if (e == error.Help) {
+            opt.printUsage(Options, stdout);
+            try stdout.flush();
+            return;
+        }
         return e;
     };
 
     // opts.port, opts.verbose, etc are now populated
     // positionals contains remaining non-option arguments
+    _ = positionals;
 }
 ```
 
@@ -104,7 +114,7 @@ The result contains `global`, `command`, `command_name`, `command_index`, and `p
 
 ### `printUsage(T, writer) void`
 
-Print help text to writer.
+Print help text to a writer (such as `*std.Io.Writer`). Flush buffered writers after printing.
 
 ### `Multi(T, capacity) type`
 
