@@ -2,7 +2,7 @@
 
 Declarative CLI option parsing for Zig. Define options as a struct, get parsing and help generation for free.
 
-Requires Zig 0.16.0 or newer. For local development, run `mise install` and `mise exec -- make test`.
+Requires Zig 0.17.0 or newer. For local development, run `mise install` and `mise exec -- make test`.
 
 ## Usage
 

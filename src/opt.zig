@@ -37,7 +37,7 @@ pub fn Multi(comptime Elem: type, comptime capacity: usize) type {
 pub fn parse(comptime T: type, opts: *T, args: []const []const u8, positionals_buf: [][]const u8) errors.ParseError![]const []const u8 {
     comptime options.validateOptionStruct(T);
 
-    const fields = @typeInfo(T).@"struct".fields;
+    const fields = @typeInfo(T).@"struct".field_names;
     const has_meta = @hasDecl(T, "meta");
 
     var pos_idx: usize = 0;
@@ -114,14 +114,14 @@ fn commandPayloadType(comptime command_spec: anytype) type {
 
 fn commandUnion(comptime commands: anytype) type {
     const Commands = @TypeOf(commands);
-    const fields_info = @typeInfo(Commands).@"struct".fields;
-    comptime var field_types: [fields_info.len]type = undefined;
+    const field_names = @typeInfo(Commands).@"struct".field_names;
+    comptime var field_types: [field_names.len]type = undefined;
 
-    inline for (fields_info, 0..) |field, idx| {
-        field_types[idx] = commandPayloadType(@field(commands, field.name));
+    inline for (field_names, 0..) |field_name, idx| {
+        field_types[idx] = commandPayloadType(@field(commands, field_name));
     }
 
-    return @Union(.auto, std.meta.FieldEnum(Commands), std.meta.fieldNames(Commands), &field_types, &@splat(.{}));
+    return @Union(.auto, std.meta.FieldEnum(Commands), field_names, &field_types, &@splat(.{}));
 }
 
 fn commandFound(comptime commands: anytype) type {
@@ -150,13 +150,13 @@ fn commandSpecOptions(comptime command_spec: anytype) type {
 }
 
 fn validateNoDuplicateOptionsBetween(comptime A: type, comptime B: type) void {
-    const a_fields = @typeInfo(A).@"struct".fields;
-    const b_fields = @typeInfo(B).@"struct".fields;
+    const a_fields = @typeInfo(A).@"struct".field_names;
+    const b_fields = @typeInfo(B).@"struct".field_names;
 
     inline for (a_fields) |a_field| {
         inline for (b_fields) |b_field| {
-            if (std.mem.eql(u8, a_field.name, b_field.name)) {
-                @compileError("duplicate long option in visible command path: " ++ @typeName(A) ++ "." ++ a_field.name ++ " and " ++ @typeName(B) ++ "." ++ b_field.name);
+            if (std.mem.eql(u8, a_field, b_field)) {
+                @compileError("duplicate long option in visible command path: " ++ @typeName(A) ++ "." ++ a_field ++ " and " ++ @typeName(B) ++ "." ++ b_field);
             }
         }
 
@@ -173,8 +173,8 @@ fn validateNoDuplicateOptionsBetween(comptime A: type, comptime B: type) void {
 }
 
 fn validateCommandsAgainstScope(comptime commands: anytype, comptime Scope: type) void {
-    inline for (@typeInfo(@TypeOf(commands)).@"struct".fields) |field| {
-        const command_spec = @field(commands, field.name);
+    inline for (@typeInfo(@TypeOf(commands)).@"struct".field_names) |field_name| {
+        const command_spec = @field(commands, field_name);
         const Opts = commandSpecOptions(command_spec);
         validateNoDuplicateOptionsBetween(Scope, Opts);
         if (comptime commandSpecIsBranch(command_spec)) {
@@ -184,8 +184,8 @@ fn validateCommandsAgainstScope(comptime commands: anytype, comptime Scope: type
 }
 
 fn validateCommandTree(comptime commands: anytype) void {
-    inline for (@typeInfo(@TypeOf(commands)).@"struct".fields) |field| {
-        const command_spec = @field(commands, field.name);
+    inline for (@typeInfo(@TypeOf(commands)).@"struct".field_names) |field_name| {
+        const command_spec = @field(commands, field_name);
         const Opts = commandSpecOptions(command_spec);
         options.validateOptionStruct(Opts);
         if (comptime commandSpecIsBranch(command_spec)) {
@@ -203,9 +203,9 @@ fn validateCommandParserSpec(comptime spec: anytype) void {
 
 fn VisibleResolver(comptime G: type, comptime Scope: type) type {
     return struct {
-        const g_fields = @typeInfo(G).@"struct".fields;
+        const g_fields = @typeInfo(G).@"struct".field_names;
         const g_has_meta = @hasDecl(G, "meta");
-        const scope_fields = if (Scope != void) @typeInfo(Scope).@"struct".fields else &[_]std.builtin.Type.StructField{};
+        const scope_fields = if (Scope != void) @typeInfo(Scope).@"struct".field_names else &[_][:0]const u8{};
         const scope_has_meta = if (Scope != void) @hasDecl(Scope, "meta") else false;
 
         pub fn longValueMode(_: @This(), name: []const u8) ?scanner.ValueMode {
@@ -233,7 +233,7 @@ fn setLongInVisible(
     is_negated: bool,
     value: ?[]const u8,
 ) errors.ParseError!bool {
-    const g_fields = @typeInfo(G).@"struct".fields;
+    const g_fields = @typeInfo(G).@"struct".field_names;
     const g_has_meta = @hasDecl(G, "meta");
     const global_found = try if (is_negated)
         options.setFieldNegated(G, g_fields, g_has_meta, global, name)
@@ -242,7 +242,7 @@ fn setLongInVisible(
     if (global_found) return true;
 
     if (comptime Scope != void) {
-        const scope_fields = @typeInfo(Scope).@"struct".fields;
+        const scope_fields = @typeInfo(Scope).@"struct".field_names;
         const scope_has_meta = @hasDecl(Scope, "meta");
         return try if (is_negated)
             options.setFieldNegated(Scope, scope_fields, scope_has_meta, scope.?, name)
@@ -261,13 +261,13 @@ fn setShortInVisible(
     short: u8,
     value: ?[]const u8,
 ) errors.ParseError!bool {
-    const g_fields = @typeInfo(G).@"struct".fields;
+    const g_fields = @typeInfo(G).@"struct".field_names;
     const g_has_meta = @hasDecl(G, "meta");
     const global_found = try options.setFieldByShort(G, g_fields, g_has_meta, global, short, value);
     if (global_found) return true;
 
     if (comptime Scope != void) {
-        const scope_fields = @typeInfo(Scope).@"struct".fields;
+        const scope_fields = @typeInfo(Scope).@"struct".field_names;
         const scope_has_meta = @hasDecl(Scope, "meta");
         return try options.setFieldByShort(Scope, scope_fields, scope_has_meta, scope.?, short, value);
     }
@@ -321,7 +321,7 @@ fn parseCommandIn(
     positionals_buf: [][]const u8,
     pos_idx: *usize,
 ) errors.ParseError!commandFound(commands) {
-    const command_fields = @typeInfo(@TypeOf(commands)).@"struct".fields;
+    const command_fields = @typeInfo(@TypeOf(commands)).@"struct".field_names;
 
     const resolver = VisibleResolver(G, Scope){};
     while (arg_scanner.next(resolver)) |token| {
@@ -333,9 +333,9 @@ fn parseCommandIn(
                 if (!found) return errors.ParseError.UnknownOption;
             },
             .positional => |pos| {
-                inline for (command_fields) |field| {
-                    if (commandNameMatches(field.name, pos.value)) {
-                        const command_spec = @field(commands, field.name);
+                inline for (command_fields) |field_name| {
+                    if (commandNameMatches(field_name, pos.value)) {
+                        const command_spec = @field(commands, field_name);
                         if (comptime commandSpecIsBranch(command_spec)) {
                             var branch_options = command_spec.options{};
                             const child = try parseCommandIn(G, command_spec.options, command_spec.commands, global, &branch_options, arg_scanner, positionals_buf, pos_idx);
@@ -346,7 +346,7 @@ fn parseCommandIn(
                                 .command = child.command,
                             };
                             return .{
-                                .command = @unionInit(commandUnion(commands), field.name, payload),
+                                .command = @unionInit(commandUnion(commands), field_name, payload),
                                 .command_name = pos.value,
                                 .command_index = pos.index,
                             };
@@ -354,7 +354,7 @@ fn parseCommandIn(
                             var command_options = command_spec{};
                             try parseRemainingInVisible(G, command_spec, global, &command_options, arg_scanner, positionals_buf, pos_idx);
                             return .{
-                                .command = @unionInit(commandUnion(commands), field.name, command_options),
+                                .command = @unionInit(commandUnion(commands), field_name, command_options),
                                 .command_name = pos.value,
                                 .command_index = pos.index,
                             };
@@ -407,8 +407,8 @@ pub fn CommandParser(comptime spec: anytype) type {
                 writer.print("Usage: {s} <command> [options]\n\n", .{spec.name}) catch return;
             }
             writer.writeAll("Commands:\n") catch return;
-            inline for (@typeInfo(@TypeOf(spec.commands)).@"struct".fields) |field| {
-                writer.print("  {s}\n", .{field.name}) catch return;
+            inline for (@typeInfo(@TypeOf(spec.commands)).@"struct".field_names) |field_name| {
+                writer.print("  {s}\n", .{field_name}) catch return;
             }
             writer.writeAll("\nGlobal options:\n") catch return;
             printFields(Global, writer);
@@ -426,17 +426,17 @@ pub fn CommandParser(comptime spec: anytype) type {
 }
 
 fn printFields(comptime T: type, writer: anytype) void {
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
     const has_meta = @hasDecl(T, "meta");
 
-    inline for (fields) |field| {
-        const short: ?u8 = if (has_meta and @hasField(@TypeOf(T.meta), field.name)) blk: {
-            const m = @field(T.meta, field.name);
+    inline for (info.field_names, info.field_types, info.field_attrs) |field_name, FieldType, attrs| {
+        const short: ?u8 = if (has_meta and @hasField(@TypeOf(T.meta), field_name)) blk: {
+            const m = @field(T.meta, field_name);
             break :blk if (@hasField(@TypeOf(m), "short")) m.short else null;
         } else null;
 
-        const help: ?[]const u8 = if (has_meta and @hasField(@TypeOf(T.meta), field.name)) blk: {
-            const m = @field(T.meta, field.name);
+        const help: ?[]const u8 = if (has_meta and @hasField(@TypeOf(T.meta), field_name)) blk: {
+            const m = @field(T.meta, field_name);
             break :blk if (@hasField(@TypeOf(m), "help")) m.help else null;
         } else null;
 
@@ -449,15 +449,15 @@ fn printFields(comptime T: type, writer: anytype) void {
         }
 
         writer.writeAll("--") catch return;
-        for (field.name) |c| {
+        for (field_name) |c| {
             writer.writeByte(if (c == '_') '-' else c) catch return;
         }
 
-        if (field.type != bool) {
-            writer.print(" <{s}>", .{typeName(field.type)}) catch return;
+        if (FieldType != bool) {
+            writer.print(" <{s}>", .{typeName(FieldType)}) catch return;
         }
 
-        const name_len = field.name.len + 2 + (if (field.type != bool) typeName(field.type).len + 3 else 0);
+        const name_len = field_name.len + 2 + (if (FieldType != bool) typeName(FieldType).len + 3 else 0);
         const pad = if (name_len < 24) 24 - name_len else 1;
         writer.writeAll(spaces[0..pad]) catch return;
 
@@ -465,16 +465,16 @@ fn printFields(comptime T: type, writer: anytype) void {
             writer.writeAll(h) catch return;
         }
 
-        if (field.defaultValue()) |def| {
-            if (field.type == bool) {
+        if (attrs.defaultValue(FieldType)) |def| {
+            if (FieldType == bool) {
                 // skip
-            } else if (field.type == []const u8) {
+            } else if (FieldType == []const u8) {
                 writer.print(" (default: {s})", .{def}) catch return;
-            } else if (@typeInfo(field.type) == .optional) {
+            } else if (@typeInfo(FieldType) == .optional) {
                 // skip
-            } else if (@typeInfo(field.type) == .int) {
+            } else if (@typeInfo(FieldType) == .int) {
                 writer.print(" (default: {d})", .{def}) catch return;
-            } else if (@typeInfo(field.type) == .@"enum") {
+            } else if (@typeInfo(FieldType) == .@"enum") {
                 writer.print(" (default: {s})", .{@tagName(def)}) catch return;
             }
         }
@@ -594,6 +594,31 @@ test "printUsage output" {
     try std.testing.expect(std.mem.indexOf(u8, output, "-r, --replace") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "(default: 2)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "--dry-run") != null);
+}
+
+test "printUsage reflects field types and defaults" {
+    const Opts = struct {
+        label: []const u8 = "sample",
+        mode: enum { fast, slow } = .fast,
+        limit: ?u32 = null,
+        enabled: ?bool = null,
+        exclude: Multi([]const u8, 2) = .{},
+        count: u16,
+    };
+
+    var buf: [2048]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    printUsage(Opts, &writer);
+    const output = writer.buffered();
+
+    try std.testing.expect(std.mem.indexOf(u8, output, "--label <str>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(default: sample)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--mode <enum>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(default: fast)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--limit <u32>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--exclude <str>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--count <u16>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(default: null)") == null);
 }
 
 test "CommandParser usage output" {
